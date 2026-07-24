@@ -497,7 +497,7 @@ final class SearchViewModel: ObservableObject {
                         systemIcon: "app.fill",
                         score: fuzzyScore(query, name) + ranking
                     ) {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        AintoLaunch.smartOpen(appName: name, fallbackPath: path)
                         rc_update_ranking(path)
                     }
                     result.actions = Self.appActions(path: path)
@@ -1074,7 +1074,7 @@ final class SearchViewModel: ObservableObject {
                         icon: icon,
                         systemIcon: "app.fill"
                     ) {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        AintoLaunch.smartOpen(appName: name, fallbackPath: path)
                         rc_update_ranking(path)
                     }
                     result.actions = Self.appActions(path: path)
