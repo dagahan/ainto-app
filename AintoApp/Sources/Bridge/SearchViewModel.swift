@@ -361,6 +361,10 @@ final class SearchViewModel: ObservableObject {
     /// Callback to reload text expander snippets (set by AppDelegate)
     var onSnippetsChanged: (() -> Void)?
 
+    /// Callback to open the settings window (set by AppDelegate). The launcher
+    /// list is the only entry point — this build has no menu bar item.
+    var onOpenSettings: (() -> Void)?
+
     var statusText: String {
         switch results.count {
         case 0: return "No results"
@@ -604,6 +608,20 @@ final class SearchViewModel: ObservableObject {
             ) { [weak self] in
                 self?.incrementCommandRanking("Clipboard History")
                 self?.goToClipboard()
+            }
+            commandResults.append(r)
+        }
+
+        if fuzzyMatch(q, "settings") || fuzzyMatch(q, "preferences") {
+            let r = SearchResult(
+                title: "Settings",
+                subtitle: "Command",
+                icon: nil,
+                systemIcon: "gearshape",
+                score: fuzzyScore(query, "Settings") + commandRanking(for: "Settings")
+            ) { [weak self] in
+                self?.incrementCommandRanking("Settings")
+                self?.onOpenSettings?()
             }
             commandResults.append(r)
         }

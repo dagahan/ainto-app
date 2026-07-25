@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager: HotkeyManager?
     private var clipboardMonitor: ClipboardMonitor?
     private var textExpander: TextExpander?
-    private var trayManager: TrayManager?
     private var settingsWindow: NSWindow?
     private var configWatcherSources: [DispatchSourceFileSystemObject] = []
     private var configWatcherFDs: [Int32] = []
@@ -49,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         searchPanel?.viewModel.onSnippetsChanged = { [weak self] in
             self?.textExpander?.reloadSnippets()
         }
+        searchPanel?.viewModel.onOpenSettings = { [weak self] in
+            self?.openSettings()
+        }
 
         // Set up global hotkey
         hotkeyManager = HotkeyManager { [weak self] in
@@ -66,11 +68,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start global text expansion (only while enabled in config)
         textExpander = TextExpander()
         applySnippetsEnabled()
-
-        // Set up tray icon
-        trayManager = TrayManager(hotkeyManager: hotkeyManager, onSettings: { [weak self] in
-            self?.openSettings()
-        })
 
         // Watch ~/.config/ainto/ for external file changes (e.g. manual TOML edits)
         watchConfigDirectory()
