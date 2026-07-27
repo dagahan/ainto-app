@@ -16,10 +16,22 @@ enum AintoLaunch {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: aerospace)
         proc.arguments = ["smart-open", appName]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
         do {
             try proc.run()
         } catch {
             plainOpen(fallbackPath)
+            return
+        }
+        // Spawning is not launching. `run()` only throws when the binary itself
+        // cannot be started — if the AeroSpace server is down, the CLI starts
+        // perfectly well and then exits non-zero, and without this the app
+        // silently never opens and nothing says why.
+        DispatchQueue.global(qos: .userInitiated).async {
+            proc.waitUntilExit()
+            guard proc.terminationStatus != 0 else { return }
+            DispatchQueue.main.async { plainOpen(fallbackPath) }
         }
     }
 
