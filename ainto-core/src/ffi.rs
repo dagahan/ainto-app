@@ -27,7 +27,10 @@ fn from_c_str(s: *const c_char) -> Option<String> {
     if s.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(s) }.to_str().ok().map(|s| s.to_string())
+    unsafe { CStr::from_ptr(s) }
+        .to_str()
+        .ok()
+        .map(|s| s.to_string())
 }
 
 // ============================================================
@@ -47,6 +50,9 @@ pub extern "C" fn rc_free_string(s: *const c_char) {
 // Config
 // ============================================================
 
+/// Returns null when the config file exists but could not be read or parsed.
+/// Callers must treat null as "unknown" and fall back to their own defaults —
+/// never as "empty config", or saving would overwrite a file we failed to read.
 #[unsafe(no_mangle)]
 pub extern "C" fn rc_config_load() -> *const c_char {
     match config::Config::load() {
@@ -54,10 +60,7 @@ pub extern "C" fn rc_config_load() -> *const c_char {
             let json = serde_json::to_string(&cfg).unwrap_or_default();
             to_c_string(&json)
         }
-        Err(_) => {
-            let json = serde_json::to_string(&config::Config::default()).unwrap_or_default();
-            to_c_string(&json)
-        }
+        Err(_) => ptr::null(),
     }
 }
 
@@ -102,7 +105,7 @@ pub extern "C" fn rc_discover_apps(store_icons: bool) -> *const c_char {
     if let Ok(mut idx) = APP_INDEX.lock() {
         // Load rankings
         let rankings = if let Ok(cfg_dir) = config::config_dir() {
-            crate::ranking::load_rankings(&cfg_dir.join("ranking.toml"))
+            crate::ranking::all_rankings(&cfg_dir.join("ranking.toml"))
         } else {
             std::collections::HashMap::new()
         };
@@ -173,17 +176,18 @@ pub extern "C" fn rc_get_top_apps(limit: u64) -> *const c_char {
 #[unsafe(no_mangle)]
 pub extern "C" fn rc_increment_ranking(key: *const c_char) -> i32 {
     let Some(k) = from_c_str(key) else { return -1 };
-    let Ok(cfg_dir) = config::config_dir() else { return -1 };
+    let Ok(cfg_dir) = config::config_dir() else {
+        return -1;
+    };
     let path = cfg_dir.join("ranking.toml");
     let score = crate::ranking::increment_and_save(&path, &k);
 
     // Also update in-memory AppIndex if it's an app path
-    if !k.starts_with("cmd:") {
-        if let Ok(mut idx) = APP_INDEX.lock() {
-            if let Some(ref mut index) = *idx {
-                index.update_ranking(&k);
-            }
-        }
+    if !k.starts_with("cmd:")
+        && let Ok(mut idx) = APP_INDEX.lock()
+        && let Some(ref mut index) = *idx
+    {
+        index.update_ranking(&k);
     }
     score
 }
@@ -192,9 +196,30 @@ pub extern "C" fn rc_increment_ranking(key: *const c_char) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rc_get_ranking(key: *const c_char) -> i32 {
     let Some(k) = from_c_str(key) else { return 0 };
-    let Ok(cfg_dir) = config::config_dir() else { return 0 };
+    let Ok(cfg_dir) = config::config_dir() else {
+        return 0;
+    };
     let path = cfg_dir.join("ranking.toml");
     crate::ranking::get_score(&path, &k)
+}
+
+/// Clear persisted rankings together with every in-memory ranking value.
+#[unsafe(no_mangle)]
+pub extern "C" fn rc_reset_rankings() -> i32 {
+    let Ok(cfg_dir) = config::config_dir() else {
+        return -1;
+    };
+    let path = cfg_dir.join("ranking.toml");
+    if crate::ranking::reset(&path).is_err() {
+        return -1;
+    }
+
+    if let Ok(mut idx) = APP_INDEX.lock()
+        && let Some(ref mut index) = *idx
+    {
+        index.apply_rankings(&std::collections::HashMap::new());
+    }
+    0
 }
 
 #[unsafe(no_mangle)]
@@ -202,18 +227,20 @@ pub extern "C" fn rc_update_ranking(app_path: *const c_char) {
     let Some(key) = from_c_str(app_path) else {
         return;
     };
-    let Ok(cfg_dir) = config::config_dir() else { return };
+    let Ok(cfg_dir) = config::config_dir() else {
+        return;
+    };
     let path = cfg_dir.join("ranking.toml");
     let score = crate::ranking::increment_and_save(&path, &key);
 
     // Update in-memory AppIndex
-    if let Ok(mut idx) = APP_INDEX.lock() {
-        if let Some(ref mut index) = *idx {
-            index.update_ranking(&key);
-            // Set the ranking to the frecency score
-            if let Some(app) = index.apps_mut().iter_mut().find(|a| a.path == key) {
-                app.ranking = score;
-            }
+    if let Ok(mut idx) = APP_INDEX.lock()
+        && let Some(ref mut index) = *idx
+    {
+        index.update_ranking(&key);
+        // Set the ranking to the frecency score
+        if let Some(app) = index.apps_mut().iter_mut().find(|a| a.path == key) {
+            app.ranking = score;
         }
     }
 }
@@ -261,10 +288,7 @@ pub extern "C" fn rc_clipboard_set_limits(max_text_items: u64, max_image_items: 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rc_clipboard_insert_text(
-    text: *const c_char,
-    source_app: *const c_char,
-) -> i64 {
+pub extern "C" fn rc_clipboard_insert_text(text: *const c_char, source_app: *const c_char) -> i64 {
     let Some(text_str) = from_c_str(text) else {
         return -1;
     };
@@ -284,8 +308,13 @@ pub extern "C" fn rc_clipboard_insert_text(
         .unwrap_or(-1)
 }
 
+/// # Safety
+/// `png_data` must point to at least `png_len` readable bytes.
+///
+/// (The other entry points here are equally unsafe, but read their pointers
+/// through `from_c_str`, so clippy's heuristic does not flag them.)
 #[unsafe(no_mangle)]
-pub extern "C" fn rc_clipboard_insert_image(
+pub unsafe extern "C" fn rc_clipboard_insert_image(
     png_data: *const u8,
     png_len: u64,
     width: u32,
@@ -318,10 +347,7 @@ pub extern "C" fn rc_clipboard_insert_image(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rc_clipboard_insert_file(
-    path: *const c_char,
-    source_app: *const c_char,
-) -> i64 {
+pub extern "C" fn rc_clipboard_insert_file(path: *const c_char, source_app: *const c_char) -> i64 {
     let Some(path_str) = from_c_str(path) else {
         return -1;
     };
@@ -406,7 +432,11 @@ pub extern "C" fn rc_clipboard_search(query: *const c_char) -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rc_clipboard_search_paged(query: *const c_char, limit: u64, offset: u64) -> *const c_char {
+pub extern "C" fn rc_clipboard_search_paged(
+    query: *const c_char,
+    limit: u64,
+    offset: u64,
+) -> *const c_char {
     let Some(q) = from_c_str(query) else {
         return to_c_string("[]");
     };
@@ -454,12 +484,16 @@ pub extern "C" fn rc_clipboard_clear() -> i32 {
 // Snippets
 // ============================================================
 
+/// Returns null when snippets.toml exists but could not be read or parsed.
+/// A missing file is not an error — it yields an empty list.
 #[unsafe(no_mangle)]
 pub extern "C" fn rc_snippets_load() -> *const c_char {
     let path = config::config_dir()
         .map(|d| d.join("snippets.toml"))
         .unwrap_or_default();
-    let snips = snippets::load_snippets(&path).unwrap_or_default();
+    let Ok(snips) = snippets::load_snippets(&path) else {
+        return ptr::null();
+    };
     let json = serde_json::to_string(&snips).unwrap_or_else(|_| "[]".to_string());
     to_c_string(&json)
 }
@@ -499,12 +533,16 @@ pub extern "C" fn rc_snippet_expand(
 // AI Commands
 // ============================================================
 
+/// Returns null when ai-commands.toml exists but could not be read or parsed.
+/// A missing file is not an error — it is seeded with the built-in defaults.
 #[unsafe(no_mangle)]
 pub extern "C" fn rc_ai_commands_load() -> *const c_char {
     let path = config::config_dir()
         .map(|d| d.join("ai-commands.toml"))
         .unwrap_or_default();
-    let cmds = crate::ai_commands::load_commands(&path).unwrap_or_default();
+    let Ok(cmds) = crate::ai_commands::load_commands(&path) else {
+        return ptr::null();
+    };
     let json = serde_json::to_string(&cmds).unwrap_or_else(|_| "[]".to_string());
     to_c_string(&json)
 }

@@ -19,7 +19,11 @@ pub struct ClaudeSession {
 
 impl ClaudeSession {
     /// Start a new Claude session, or resume an existing one.
-    pub fn start(query: &str, binary: &str, resume_session_id: Option<&str>) -> Result<Self, Error> {
+    pub fn start(
+        query: &str,
+        binary: &str,
+        resume_session_id: Option<&str>,
+    ) -> Result<Self, Error> {
         // Validate binary name: reject empty strings and dangerous characters
         if binary.is_empty() {
             return Err(Error::ClaudeSpawn("claude_binary must not be empty".into()));
@@ -46,9 +50,8 @@ impl ClaudeSession {
 
         let path_env = std::env::var("PATH").unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
-        let extended_path = format!(
-            "{home}/.local/bin:/usr/local/bin:/opt/homebrew/bin:{path_env}"
-        );
+        let extended_path =
+            format!("{home}/.local/bin:/usr/local/bin:/opt/homebrew/bin:{path_env}");
 
         let mut cmd = Command::new(&resolved_binary);
         cmd.arg("-p")
@@ -76,9 +79,10 @@ impl ClaudeSession {
             .spawn()
             .map_err(|e| Error::ClaudeSpawn(e.to_string()))?;
 
-        let stdout = child.stdout.take().ok_or(Error::ClaudeSpawn(
-            "failed to capture stdout".to_string(),
-        ))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or(Error::ClaudeSpawn("failed to capture stdout".to_string()))?;
 
         Ok(Self {
             child,
@@ -105,10 +109,10 @@ impl ClaudeSession {
                 }
                 Ok(_) => {
                     // Try to extract session_id from init event
-                    if self.session_id.is_none() {
-                        if let Some(sid) = extract_session_id(&line) {
-                            self.session_id = Some(sid);
-                        }
+                    if self.session_id.is_none()
+                        && let Some(sid) = extract_session_id(&line)
+                    {
+                        self.session_id = Some(sid);
                     }
                     if let Some(text) = extract_text_from_stream_json(&line) {
                         self.response.push_str(&text);
@@ -130,7 +134,11 @@ impl ClaudeSession {
         // Read all stderr
         let stderr_text = if let Some(stderr) = self.child.stderr.take() {
             let reader = BufReader::new(stderr);
-            reader.lines().filter_map(|l| l.ok()).collect::<Vec<_>>().join("\n")
+            reader
+                .lines()
+                .map_while(Result::ok)
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             String::new()
         };

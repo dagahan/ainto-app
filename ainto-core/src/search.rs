@@ -47,14 +47,14 @@ impl AppIndex {
             })
             .collect();
 
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         scored.into_iter().map(|(app, _)| app).collect()
     }
 
     /// Get top-ranked apps (most frequently used).
     pub fn get_top_ranked(&self, limit: usize) -> Vec<&AppEntry> {
         let mut ranked: Vec<&AppEntry> = self.apps.iter().filter(|a| a.ranking > 0).collect();
-        ranked.sort_by(|a, b| b.ranking.cmp(&a.ranking));
+        ranked.sort_by_key(|app| std::cmp::Reverse(app.ranking));
         ranked.truncate(limit);
         ranked
     }
@@ -79,11 +79,15 @@ impl AppIndex {
     }
 
     /// Apply frecency rankings loaded from disk.
-    pub fn apply_rankings(&mut self, rankings: &std::collections::HashMap<String, crate::ranking::RankingEntry>) {
+    pub fn apply_rankings(
+        &mut self,
+        rankings: &std::collections::HashMap<String, crate::ranking::RankingEntry>,
+    ) {
         for app in &mut self.apps {
-            if let Some(entry) = rankings.get(&app.path) {
-                app.ranking = entry.frecency_score();
-            }
+            app.ranking = rankings
+                .get(&app.path)
+                .map(crate::ranking::RankingEntry::frecency_score)
+                .unwrap_or(0);
         }
     }
 
@@ -177,7 +181,10 @@ fn word_boundary_match(query: &str, display_name: &str) -> bool {
     }
 
     // Check if query is a subsequence of the initials
-    let initials_lower: Vec<char> = initials.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
+    let initials_lower: Vec<char> = initials
+        .iter()
+        .map(|c| c.to_lowercase().next().unwrap_or(*c))
+        .collect();
     let mut qi = 0;
     for &ic in &initials_lower {
         if qi < query_chars.len() && ic == query_chars[qi] {
@@ -201,7 +208,10 @@ fn extract_word_boundaries(name: &str) -> Vec<char> {
         } else if c.is_uppercase() && i > 0 && chars[i - 1].is_lowercase() {
             // camelCase boundary: "OrbStack" → S
             boundaries.push(c);
-        } else if i > 0 && (chars[i - 1] == ' ' || chars[i - 1] == '-' || chars[i - 1] == '_') && c.is_alphanumeric() {
+        } else if i > 0
+            && (chars[i - 1] == ' ' || chars[i - 1] == '-' || chars[i - 1] == '_')
+            && c.is_alphanumeric()
+        {
             // Word boundary after separator
             boundaries.push(c);
         }
@@ -212,7 +222,10 @@ fn extract_word_boundaries(name: &str) -> Vec<char> {
 /// CamelCase aware subsequence: query chars match at case-change boundaries.
 fn camel_case_match(query: &str, display_name: &str) -> bool {
     let boundaries = extract_word_boundaries(display_name);
-    let boundary_str: String = boundaries.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
+    let boundary_str: String = boundaries
+        .iter()
+        .map(|c| c.to_lowercase().next().unwrap_or(*c))
+        .collect();
     let query_lc = query.to_lowercase();
     is_subsequence(&query_lc, &boundary_str)
 }
