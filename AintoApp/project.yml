@@ -33,9 +33,6 @@ packages:
   HotKey:
     url: https://github.com/soffes/HotKey
     from: "0.2.1"
-  Sparkle:
-    url: https://github.com/sparkle-project/Sparkle
-    from: "2.0.0"
 
 targets:
   AintoApp:
@@ -55,8 +52,6 @@ targets:
           - "Info.plist"
     dependencies:
       - package: HotKey
-      - package: Sparkle
-        product: Sparkle
       - sdk: CoreFoundation.framework
       - sdk: CoreServices.framework
       - sdk: AppKit.framework

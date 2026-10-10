@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import AintoCore
-import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,23 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Watches for files that are created after launch without polling.
     private var configDirectoryWatcher: DispatchSourceFileSystemObject?
 
-    private var updaterController: SPUStandardUpdaterController?
-
-    var updater: SPUUpdater? {
-        updaterController?.updater
-    }
-
-    /// Only start Sparkle when running as a .app bundle (not bare SPM binary).
-    private func setupSparkle() {
-        guard Bundle.main.bundleIdentifier != nil,
-              Bundle.main.infoDictionary?["SUFeedURL"] != nil else { return }
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: nil,
-            userDriverDelegate: nil
-        )
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide from Dock (LSUIElement behavior)
         NSApp.setActivationPolicy(.accessory)
@@ -41,9 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Initialize Rust core
         initializeRustCore()
-
-        // Start Sparkle auto-update (only in .app bundle)
-        setupSparkle()
 
         // Set up search panel
         searchPanel = SearchPanel()
